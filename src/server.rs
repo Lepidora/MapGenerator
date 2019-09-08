@@ -4,13 +4,16 @@
  *  Handles the operation of the tile HTTP server
  */
 
+use json;
+
 #[path = "parser.rs"]
 mod parser;
 #[path = "images.rs"]
 mod images;
 #[path = "generation/world.rs"]
 mod world;
-
+#[path = "worlds.rs"]
+mod worlds;
 
 use std::borrow::Cow::Owned;
 use std::borrow::Cow::Borrowed;
@@ -70,7 +73,7 @@ fn handle_connection(mut stream: TcpStream) {
 				},
 			}
 		},
-		Err(error) => println!("Unable to read stream: {}", error), 
+		Err(error) => println!("Unable to read stream: {}", error)
 	}
 }
 
@@ -86,7 +89,7 @@ fn write_default(stream: TcpStream) {
 //If the path can be parsed into ZXY coordinates, it sends an image, otherwise it sends nothing
 fn handle_out(stream: TcpStream, request: String) {
 	
-	let parsed_path = parser::get_path(request);
+	let parsed_path = parser::get_path(&request);
 
 	match parsed_path {
 		
@@ -94,14 +97,17 @@ fn handle_out(stream: TcpStream, request: String) {
 			
 			let path_components = parser::get_path_components(path);
 
+			let body = parser::get_body(&request);
+
 			if path_components.len() > 0 {
 				
 				match path_components[0].as_ref() {
 				
 					//These are matched against the first item after the / in the request url
-					"new" => handle_new_world(stream, path_components),
+					"new" => handle_new_world(stream, path_components, body),
 					"tiles" => handle_tiles(stream, path_components),
 					"client" => handle_static(stream, path_components),
+					"get" => handle_get_world(stream, path_components),
 
 					page => {
 
@@ -129,14 +135,67 @@ fn handle_out(stream: TcpStream, request: String) {
 }
 
 //Handles when a client asks for a new world to be generated
-fn handle_new_world(stream: TcpStream, path_components: Vec<String>) {
-	
-	let id = world::new_world();
+fn handle_new_world(stream: TcpStream, path_components: Vec<String>, body_string: Option<String>) {
+
+	println!("{}", body_string.clone().unwrap());
+
+	let parsed_body = parser::parse_body(body_string);
+
+	let world;
+
+	match parsed_body {
+
+		Ok(body) => {
+			
+			let name = if !body["name"].is_null() { Some(body["name"].to_string()) } else { None };
+			let seed = if !body["seed"].is_null() { Some(body["seed"].to_string()) } else { None };
+			let sea_level = if !body["sea_level"].is_null() { body["sea_level"].as_f64() } else { println!("tessssst"); None };
+			let temperature = if !body["temperature"].is_null() { body["temperature"].as_f64() } else { None };
+			let humidity = if !body["humidity"].is_null() { body["humidity"].as_f64() } else { None };
+			
+			world = worlds::new_world_with_values(name, seed, sea_level, temperature, humidity)
+		},
+		Err(error) => { println!("{}", error); world = worlds::new_world() }
+	};
 
 	let mut header = default_header();
 
-	header.extend(id.to_string().into_bytes());
+	header.extend(world.to_json().into_bytes());
 	write_stream(stream, &header);
+}
+
+//Handles when a client requests an existing world
+//This will eventually need refactoring to respond with a proper error to the client in the case a world doesn't exist
+fn handle_get_world(stream: TcpStream, path_components: Vec<String>) {
+
+	if path_components.len() >= 2 {
+			
+		let raw_id = &path_components[1];
+
+		match raw_id.parse::<u64>() {
+			Ok(id) => {
+
+				match worlds::get_world_for_id(id) {
+
+					Some(world) => {
+
+						let mut header = default_header();
+
+						header.extend(world.to_json().into_bytes());
+
+						write_stream(stream, &header);
+					},
+					None => {
+						write_error(stream, "Could not find world");
+					}
+				}				
+			},
+			Err(_) => write_error(stream, "Could not parse ID")
+		};
+
+	} else {
+		write_error(stream, "No ID found in URL");
+	}
 }
 
 //Handles when a client asks for a map tile
@@ -203,10 +262,21 @@ fn handle_static(stream: TcpStream, path_components: Vec<String>) {
 			}
 		},
 		Err(error) => {
-			
 			write_string(stream, error.to_string());
 		}
 	}
+}
+
+//Takes an error message, converts it into JSON and sends it to the client
+fn write_error<S: Into<String>>(stream: TcpStream, error_message: S) {
+	
+	let mut header = content_header(get_content_type("json"));
+
+	let data = format!("{{\"error\":{}}}", json::stringify(error_message.into()));
+
+	header.extend(data.into_bytes());
+
+	write_stream(stream, &header);
 }
 
 //Writes the given string to the given stream by appending it to a text header
@@ -220,14 +290,15 @@ fn write_string(stream: TcpStream, message: String) {
 } 
 
 //Takes a file extension and returns a given content type
-fn get_content_type(extension: String) -> &'static str {
+fn get_content_type<S: Into<String>>(extension: S) -> &'static str {
 	
-	match extension.as_ref() {
+	match extension.into().as_ref() {
 		"html" => return "text/html",
 		"js" => return "text/javascript",
 		"css" => return "text/css",
 		"png" => return "image/png",
 		"jpg" => return "image/jpeg",
+		"json" => return "text/json",
 		&_ => "text/plain"
 	}
 }
@@ -242,9 +313,9 @@ fn write_stream(mut stream: TcpStream, content: &[u8]) {
 	}
 }
 
-fn content_header(content_type: String) -> Vec<u8> {
+fn content_header<S: Into<String>>(content_type: S) -> Vec<u8> {
 	
-	let header = format!("HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: {}; charset=UTF-8\r\n\r\n", content_type);
+	let header = format!("HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: {}; charset=UTF-8\r\n\r\n", content_type.into());
 
 	return header.to_string().into_bytes();
 }
