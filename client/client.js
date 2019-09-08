@@ -24,6 +24,8 @@ function checkURL() {
 
             worldid = id;
 
+            getWorldData(id);
+
             setupMap();
         }
     }
@@ -47,12 +49,12 @@ function getWorldID() {
     let body = {
         seed: seed,
         name: name,
-        sealevel: sealevel,
+        sea_level: sealevel,
         temperature: temperature,
         humidity: humidity
     };
 
-    doLocalPostRequest('http://localhost:8080/new', body, function (err, event) {
+    doPostRequest('new', body, function (err, event) {
 
         if (err) {
             console.log('Error making new world: ' + err);
@@ -67,16 +69,75 @@ function getWorldID() {
 
                 console.log(request.responseText);
 
-                let id = request.responseText;
+                let response = JSON.parse(request.responseText);
 
-                worldid = id;
+                let id = response.id;
 
-                window.history.pushState(id, 'World ' + id, '/' + id);
+                if (id !== undefined) {
 
-                setupMap();
+                    worldid = id;
+
+                    window.history.pushState(id, 'World ' + id, '/' + id);
+
+                    setParameters(response);
+
+                    setupMap();
+                }
             }
         }
     });
+}
+
+function getWorldData(id) {
+
+    doGetRequest('get/' + id, undefined, function (err, event) {
+
+        if (err) {
+            console.log('Error fetching world data: ' + err);
+            alert('Error fetching world data: ' + JSON.stringify(err));
+        } else {
+
+            let request = event.target;
+
+            if (request.readyState === 4 && request.status === 200) {
+
+                console.log(request.responseText);
+
+                let response = JSON.parse(request.responseText);
+
+                setParameters(response);
+            }
+        }
+    });
+}
+
+function setParameters(response) {
+
+    if (response.seed !== undefined) {
+        document.getElementById('seed').value = response.seed;
+    }
+
+    if (response.name !== undefined) {
+        document.getElementById('name').value = response.name;
+    }
+
+    let sea_level = response.sea_level;
+
+    if (sea_level !== undefined && !isNaN(sea_level)) {
+        document.getElementById('sealevel').value = response.sea_level;
+    }
+
+    let temperature = response.temperature;
+
+    if (temperature !== undefined && !isNaN(temperature)) {
+        document.getElementById('temperature').value = temperature;
+    }
+
+    let humidity = response.humidity;
+
+    if (humidity !== undefined && !isNaN(humidity)) {
+        document.getElementById('humidity').value = humidity;
+    }
 }
 
 function setupMap() {
