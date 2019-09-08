@@ -4,7 +4,7 @@
  *  Reused common JavaScript functions
  */
 
-function doLocalGetRequest(endpoint, parameters, callback) {
+function doGetRequest(endpoint, parameters, callback) {
 
     var request = new XMLHttpRequest();
     var url = endpoint;
@@ -25,15 +25,15 @@ function doLocalGetRequest(endpoint, parameters, callback) {
         }
     }
 
-    request.onreadystatechange = function (error) {
-        callback(error, request);
+    request.onreadystatechange = function (request) {
+        callback(undefined, request);
     }
 
     request.open('GET', url, true);
     request.send();
 }
 
-function doLocalPostRequest(endpoint, body, callback) {
+function doPostRequest(endpoint, body, callback) {
 
     try {
 
