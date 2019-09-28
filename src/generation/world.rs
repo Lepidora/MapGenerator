@@ -33,6 +33,7 @@ impl World {
 }
 
 impl Default for World {
+	
 	fn default() -> World {
 		World {
 			name: "".to_string(),
