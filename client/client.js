@@ -143,7 +143,7 @@ function setParameters(response) {
 function setupMap() {
 
     var minZoom = 2;
-    var maxZoom = 5;
+    var maxZoom = 8;
 
     var projection = new ol.proj.Projection({
 
